@@ -137,6 +137,7 @@ class PartnerProfile extends StatelessWidget {
       Center(child: Text(s.user?['phone'] ?? '', style: const TextStyle(color: C.muted))),
       const SizedBox(height: 16),
       Card(child: ListTile(leading: const Icon(Icons.notifications_none), title: const Text('Notifications'), onTap: () => push(context, const NotificationsScreen()))),
+      Card(child: ListTile(leading: const Icon(Icons.tune), title: const Text('Notification settings'), onTap: () => push(context, const NotificationSettingsScreen()))),
       Card(child: ListTile(leading: const Icon(Icons.lock_outline), title: const Text('Change password'), onTap: () => changePasswordDialog(context))),
       Card(child: ListTile(leading: const Icon(Icons.logout), title: const Text('Log out'), onTap: () => s.logout())),
     ]);

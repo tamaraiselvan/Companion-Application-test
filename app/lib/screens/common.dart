@@ -2,11 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:provider/provider.dart';
+
 import '../api.dart';
+import '../state.dart';
 import '../widgets.dart';
 
 Future<T?> push<T>(BuildContext context, Widget page) =>
     Navigator.push<T>(context, MaterialPageRoute(builder: (_) => page));
+
+/// lat/lng query params for distance-aware companion search (empty if location is unavailable).
+Future<Map<String, String>> locParams(BuildContext context) async {
+  final here = await context.read<AppState>().locate();
+  return here == null ? {} : {'lat': '${here.latitude}', 'lng': '${here.longitude}'};
+}
 
 String fmtDate(String? iso) {
   if (iso == null) return '';
@@ -52,8 +61,8 @@ class _SosSheetState extends State<SosSheet> {
 
   Future<void> _run() async {
     try {
-      // TODO: attach device GPS (geolocator package) as lat/lng.
-      await Api.I.post('/sos/', {});
+      final here = await context.read<AppState>().locate();
+      await Api.I.post('/sos/', {if (here != null) 'lat': here.latitude, if (here != null) 'lng': here.longitude});
       for (var i = 1; i < stages.length && mounted; i++) {
         await Future.delayed(const Duration(milliseconds: 700));
         if (mounted) setState(() => stage = i);
@@ -281,6 +290,7 @@ class NotificationsScreen extends StatelessWidget {
                 child: TextButton(
                     onPressed: () async {
                       await guard(ctx, () => Api.I.post('/notifications/mark-all-read/'));
+                      if (ctx.mounted) ctx.read<AppState>().refreshUnread();
                       reload();
                     },
                     child: const Text('Mark all read'))),
@@ -323,4 +333,47 @@ Future<void> changePasswordDialog(BuildContext context) {
       ],
     ),
   );
+}
+
+/// Per-category notification opt-outs (stored on the server so push respects them too).
+class NotificationSettingsScreen extends StatefulWidget {
+  const NotificationSettingsScreen({super.key});
+  @override
+  State<NotificationSettingsScreen> createState() => _NotificationSettingsState();
+}
+
+class _NotificationSettingsState extends State<NotificationSettingsScreen> {
+  static const cats = {
+    'booking': ('Booking updates', 'Confirmations, cancellations, new job requests'),
+    'arrival': ('Companion arriving', 'Check-in and arrival at your location'),
+    'payment': ('Payments', 'Wallet top-ups and refunds'),
+    'offers': ('Offers & promotions', 'Discounts and announcements'),
+    'emergency': ('Emergency alerts', 'Always on for your safety'),
+  };
+  late Map<String, dynamic> prefs = Map.of(context.read<AppState>().user?['notif_prefs'] ?? {});
+
+  Future<void> set(String k, bool v) async {
+    setState(() => prefs[k] = v);
+    final r = await guard(context, () => Api.I.patch('/auth/me/', {'notif_prefs': prefs}));
+    if (!mounted) return;
+    if (r == null) {
+      setState(() => prefs[k] = !v);
+    } else {
+      context.read<AppState>().refreshMe();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Notification settings')),
+        body: ListView(children: [
+          for (final e in cats.entries)
+            SwitchListTile(
+              title: Text(e.value.$1),
+              subtitle: Text(e.value.$2),
+              value: e.key == 'emergency' || prefs[e.key] != false,
+              onChanged: e.key == 'emergency' ? null : (v) => set(e.key, v),
+            ),
+        ]),
+      );
 }

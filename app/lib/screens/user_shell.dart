@@ -5,6 +5,7 @@ import '../api.dart';
 import '../state.dart';
 import '../widgets.dart';
 import 'common.dart';
+import 'maps.dart';
 import 'user_flows.dart';
 
 class UserShell extends StatefulWidget {
@@ -57,17 +58,19 @@ class HomeTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     return Loader(
-      load: () async => [
-        await Api.I.get('/companions/', {'ordering': '-rating'}),
-        await Api.I.get('/companions/', {'ordering': 'distance_km', 'available': 'true'}),
-        await Api.I.get('/bookings/', {'status': 'pending,accepted,in_progress'}),
-        await Api.I.get('/notifications/'),
-        await Api.I.get('/cms/'),
-      ],
+      load: () async {
+        final loc = await locParams(context);
+        return [
+          await Api.I.get('/companions/', {'ordering': '-rating', ...loc}),
+          await Api.I.get('/companions/', {'ordering': 'distance_km', 'available': 'true', ...loc}),
+          await Api.I.get('/bookings/', {'status': 'pending,accepted,in_progress'}),
+          await Api.I.get('/cms/'),
+        ];
+      },
       builder: (ctx, d, reload) {
         final upcoming = d[2] as List;
-        final unread = (d[3] as List).where((n) => n['unread'] == true).length;
-        final banners = (d[4] as List).where((c) => c['kind'] == 'banner').toList();
+        final unread = s.unread;
+        final banners = (d[3] as List).where((c) => c['kind'] == 'banner').toList();
         return ListView(padding: const EdgeInsets.all(16), children: [
           Row(children: [
             Expanded(
@@ -78,7 +81,7 @@ class HomeTab extends StatelessWidget {
               label: Text('$unread'),
               child: IconButton(
                   icon: const Icon(Icons.notifications_outlined),
-                  onPressed: () => push(context, const NotificationsScreen()).then((_) => reload())),
+                  onPressed: () => push(context, const NotificationsScreen()).then((_) => s.refreshUnread())),
             ),
           ]),
           const SizedBox(height: 10),
@@ -189,7 +192,7 @@ class _SearchTabState extends State<SearchTab> {
   late String? service = widget.initialService;
   String q = '', language = 'Any', gender = 'Any';
   double minRating = 0, maxPrice = 1000;
-  bool available = false;
+  bool available = false, mapView = false;
   Key k = UniqueKey();
 
   void apply() => setState(() => k = UniqueKey());
@@ -209,13 +212,21 @@ class _SearchTabState extends State<SearchTab> {
     final services = context.watch<AppState>().services;
     return Column(children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: TextField(
-            decoration: const InputDecoration(hintText: 'Search by name or service', prefixIcon: Icon(Icons.search)),
-            onSubmitted: (v) {
-              q = v.trim();
-              apply();
-            }),
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+        child: Row(children: [
+          Expanded(
+            child: TextField(
+                decoration: const InputDecoration(hintText: 'Search by name or service', prefixIcon: Icon(Icons.search)),
+                onSubmitted: (v) {
+                  q = v.trim();
+                  apply();
+                }),
+          ),
+          IconButton(
+              tooltip: mapView ? 'List view' : 'Map view',
+              icon: Icon(mapView ? Icons.list : Icons.map_outlined),
+              onPressed: () => setState(() => mapView = !mapView)),
+        ]),
       ),
       SizedBox(
         height: 52,
@@ -268,8 +279,11 @@ class _SearchTabState extends State<SearchTab> {
       Expanded(
         child: Loader(
           key: k,
-          load: () => Api.I.get('/companions/', params),
-          builder: (ctx, d, _) => (d as List).isEmpty
+          load: () async => Api.I.get('/companions/', {...params, ...await locParams(context), 'ordering': 'distance_km'}),
+          builder: (ctx, d, _) => mapView
+              ? CompanionsMap(
+                  companions: d, me: context.read<AppState>().here, onOpen: (c) => push(context, CompanionScreen(c['id'])))
+              : (d as List).isEmpty
               ? ListView(children: const [Padding(padding: EdgeInsets.all(24), child: Text('No matches — try widening your filters.'))])
               : ListView(padding: const EdgeInsets.fromLTRB(12, 0, 12, 90), children: [
                   Padding(padding: const EdgeInsets.all(6), child: Text('${d.length} companions found', style: const TextStyle(color: C.muted))),
@@ -411,6 +425,7 @@ class ProfileTab extends StatelessWidget {
       row(Icons.edit, 'Edit profile & medical info', () => push(context, const EditProfileScreen())),
       row(Icons.favorite_border, 'Saved favourites', () => push(context, const FavoritesScreen())),
       row(Icons.notifications_none, 'Notifications', () => push(context, const NotificationsScreen())),
+      row(Icons.tune, 'Notification settings', () => push(context, const NotificationSettingsScreen())),
       row(Icons.lock_outline, 'Change password', () => changePasswordDialog(context)),
       row(Icons.logout, 'Log out', () => s.logout()),
     ]);

@@ -1,0 +1,13 @@
+{
+  "FIREBASE_PROJECT_ID": "your-project-id",
+  "FIREBASE_SENDER_ID": "000000000000",
+  "FIREBASE_VAPID_KEY": "web-push-certificate-public-key",
+  "FIREBASE_WEB_API_KEY": "",
+  "FIREBASE_WEB_APP_ID": "1:000000000000:web:xxxx",
+  "FIREBASE_ANDROID_API_KEY": "",
+  "FIREBASE_ANDROID_APP_ID": "1:000000000000:android:xxxx",
+  "FIREBASE_IOS_API_KEY": "",
+  "FIREBASE_IOS_APP_ID": "1:000000000000:ios:xxxx",
+  "API_BASE": "https://api.example.com/api/v1",
+  "MAP_TILE_URL": "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}

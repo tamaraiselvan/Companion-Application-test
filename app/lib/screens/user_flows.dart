@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../location.dart';
 import '../state.dart';
 import '../widgets.dart';
 import 'common.dart';
+import 'maps.dart';
 
 class CompanionScreen extends StatefulWidget {
   final int id;
@@ -93,6 +96,7 @@ class _BookingWizardState extends State<BookingWizard> {
   late final address = TextEditingController(text: context.read<AppState>().user?['address'] ?? '');
   final instructions = TextEditingController(), coupon = TextEditingController();
   String payment = 'UPI';
+  LatLng? dest;
   bool busy = false;
 
   int get subtotal => (widget.companion['price'] as int) * duration;
@@ -108,6 +112,8 @@ class _BookingWizardState extends State<BookingWizard> {
           'duration': duration,
           'address': address.text.trim(),
           'instructions': instructions.text.trim(),
+          if (dest != null) 'dest_lat': double.parse(dest!.latitude.toStringAsFixed(6)),
+          if (dest != null) 'dest_lng': double.parse(dest!.longitude.toStringAsFixed(6)),
           'payment': payment,
           'coupon': coupon.text.trim(),
         }));
@@ -149,7 +155,41 @@ class _BookingWizardState extends State<BookingWizard> {
           ]),
         ),
       ]),
-      TextField(controller: address, maxLines: 3, decoration: const InputDecoration(labelText: 'Service address')),
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(controller: address, maxLines: 3, decoration: const InputDecoration(labelText: 'Service address')),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.my_location),
+              label: const Text('Current location'),
+              onPressed: () async {
+                final here = await currentLocation();
+                if (!context.mounted) return;
+                if (here == null) return toast(context, 'Location unavailable — check permissions');
+                setState(() => dest = here);
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Pick on map'),
+              onPressed: () async {
+                final p = await push<LatLng>(context, LocationPicker(initial: dest));
+                if (p != null) setState(() => dest = p);
+              },
+            ),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        if (dest != null)
+          LiveMap(destination: dest, height: 160)
+        else
+          const Text('Add a map pin so your companion can navigate to you and you get arrival alerts.',
+              style: TextStyle(color: C.muted, fontSize: 12)),
+      ]),
       TextField(controller: instructions, maxLines: 5,
           decoration: const InputDecoration(labelText: 'Special instructions', hintText: 'e.g. Prefers Tamil conversation, needs wheelchair assistance…')),
       Column(children: [
@@ -299,7 +339,7 @@ class BookingCard extends StatelessWidget {
   }
 }
 
-/// Live status of a booking. Polls the backend every 5s; partner sees check-in/out controls.
+/// Live status of a booking on a map. Polls every 5s; the assigned partner shares GPS while the job is active.
 class TrackingScreen extends StatefulWidget {
   final int bookingId;
   const TrackingScreen(this.bookingId, {super.key});
@@ -307,10 +347,15 @@ class TrackingScreen extends StatefulWidget {
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
-class _TrackingScreenState extends State<TrackingScreen> with SingleTickerProviderStateMixin {
+class _TrackingScreenState extends State<TrackingScreen> {
   Map? b;
   Timer? poll;
-  late final anim = AnimationController(vsync: this, duration: const Duration(seconds: 12))..forward();
+  StreamSubscription<LatLng>? share;
+  DateTime _lastSent = DateTime(2000);
+  String? shareError;
+
+  bool get partner => context.read<AppState>().role == 'partner';
+  bool get active => ['accepted', 'in_progress'].contains(b?['status']);
 
   @override
   void initState() {
@@ -322,49 +367,97 @@ class _TrackingScreenState extends State<TrackingScreen> with SingleTickerProvid
   @override
   void dispose() {
     poll?.cancel();
-    anim.dispose();
+    share?.cancel();
     super.dispose();
   }
 
   Future<void> load() async {
     try {
       final d = await Api.I.get('/bookings/${widget.bookingId}/');
-      if (mounted) setState(() => b = d);
+      if (!mounted) return;
+      setState(() => b = d);
+      _syncSharing();
     } catch (_) {}
+  }
+
+  /// Partner: stream GPS to the backend (at most every 10s) while the job is accepted/in progress.
+  Future<void> _syncSharing() async {
+    if (!partner) return;
+    if (!active) {
+      await share?.cancel();
+      share = null;
+      return;
+    }
+    if (share != null) return;
+    if (await currentLocation() == null) {
+      if (mounted) setState(() => shareError = 'Enable location to share your live position with the customer.');
+      return;
+    }
+    share = positionStream().listen((p) async {
+      if (DateTime.now().difference(_lastSent) < const Duration(seconds: 10)) return;
+      _lastSent = DateTime.now();
+      try {
+        final d = await Api.I.post('/bookings/${widget.bookingId}/location/', {'lat': p.latitude, 'lng': p.longitude});
+        if (mounted) {
+          setState(() {
+            b = d;
+            shareError = null;
+          });
+        }
+      } catch (_) {}
+    });
   }
 
   Future<void> act(String a, String ok) async {
     final r = await guard(context, () => Api.I.post('/bookings/${widget.bookingId}/$a/'), ok: ok);
-    if (r != null) setState(() => b = r);
+    if (r != null) {
+      setState(() => b = r);
+      _syncSharing();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (b == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    final partner = context.read<AppState>().role == 'partner';
     final st = b!['status'];
     final c = b!['companion_detail'];
+    final live = latLngOf(b), dest = latLngOf(b, 'dest_lat', 'dest_lng');
     const flow = ['pending', 'accepted', 'in_progress', 'completed'];
     final idx = flow.indexOf(st);
+    String info;
+    if (st == 'accepted' && live == null) {
+      info = partner ? 'Sharing your location once GPS is available…' : 'Waiting for ${c['name']} to start sharing location';
+    } else if (st == 'accepted' && b!['eta_min'] != null) {
+      info = '${b!['remaining_km']} km away · ETA ${b!['eta_min']} min';
+    } else {
+      info = {'pending': 'Waiting for confirmation', 'in_progress': 'Service in progress', 'completed': 'Completed'}[st] ?? st;
+    }
     return Scaffold(
       appBar: AppBar(title: Text(partner ? 'Job ${b!['code']}' : 'Live tracking')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        // Route visual. Replace with google_maps_flutter using b['lat'], b['lng'] once a Maps key is configured.
-        Container(
-          height: 200,
-          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFFDCEAE4), Color(0xFFEAF2ED)]), borderRadius: BorderRadius.circular(16)),
-          child: AnimatedBuilder(
-              animation: anim,
-              builder: (_, __) => CustomPaint(painter: _RoutePainter(st == 'in_progress' || st == 'completed' ? 1 : anim.value))),
-        ),
+        if (dest != null || live != null)
+          LiveMap(companion: live, destination: dest, companionLabel: c['name'])
+        else
+          Card(child: ListTile(leading: const Icon(Icons.map_outlined), title: const Text('No map location for this booking'), subtitle: Text(b!['address']))),
         const SizedBox(height: 12),
         Card(
+          child: ListTile(
+            leading: Avatar(partner ? (b!['user_name'] ?? 'Customer') : c['name'], color: partner ? null : c['color']),
+            title: Text(partner ? (b!['user_name'] ?? 'Customer') : c['name']),
+            subtitle: Text('$info\n${b!['address']}'),
+            isThreeLine: true,
+            trailing: StatusTag(st),
+          ),
+        ),
+        if (partner && active)
+          Card(
+            color: shareError == null ? C.successPale : C.dangerPale,
             child: ListTile(
-                leading: Avatar(c['name'], color: c['color']),
-                title: Text(c['name']),
-                subtitle: Text('${b!['address']}\n${b!['date']}, ${b!['time'].toString().substring(0, 5)} · ${b!['duration']} hr'),
-                isThreeLine: true,
-                trailing: StatusTag(st))),
+              dense: true,
+              leading: Icon(shareError == null ? Icons.share_location : Icons.location_disabled),
+              title: Text(shareError ?? 'Sharing live location while this screen is open'),
+            ),
+          ),
         const Section('Status'),
         for (var i = 0; i < flow.length; i++)
           ListTile(
@@ -381,28 +474,6 @@ class _TrackingScreenState extends State<TrackingScreen> with SingleTickerProvid
       ]),
     );
   }
-}
-
-class _RoutePainter extends CustomPainter {
-  final double t;
-  _RoutePainter(this.t);
-  @override
-  void paint(Canvas canvas, Size s) {
-    final path = Path()
-      ..moveTo(s.width * .06, s.height * .86)
-      ..cubicTo(s.width * .26, s.height * .68, s.width * .32, s.height * .36, s.width * .5, s.height * .32)
-      ..cubicTo(s.width * .68, s.height * .27, s.width * .76, s.height * .55, s.width * .94, s.height * .18);
-    canvas.drawPath(path, Paint()..color = const Color(0xFFB9D3CA)..strokeWidth = 5..style = PaintingStyle.stroke..strokeCap = StrokeCap.round);
-    final m = path.computeMetrics().first;
-    canvas.drawPath(m.extractPath(0, m.length * t), Paint()..color = C.coral..strokeWidth = 5..style = PaintingStyle.stroke..strokeCap = StrokeCap.round);
-    canvas.drawCircle(Offset(s.width * .94, s.height * .18), 7, Paint()..color = C.danger);
-    final p = m.getTangentForOffset(m.length * t)!.position;
-    canvas.drawCircle(p, 9, Paint()..color = Colors.white);
-    canvas.drawCircle(p, 9, Paint()..color = C.ink..style = PaintingStyle.stroke..strokeWidth = 3);
-  }
-
-  @override
-  bool shouldRepaint(_RoutePainter o) => o.t != t;
 }
 
 class RatingScreen extends StatefulWidget {

@@ -64,6 +64,9 @@ class Command(BaseCommand):
                 rating=round(3.9 + ((i * 7) % 11) / 10, 1), reviews_count=18 + i * 7,
                 bio=f"{first} has {1 + i % 6} yrs of experience in {svc.name.lower()} and is loved by families "
                     f"for being warm, punctual and dependable."))
+            if c.lat is None:  # spread partners around central Chennai
+                c.lat, c.lng = 13.0827 + ((i * 37) % 19 - 9) * 0.006, 80.2707 + ((i * 53) % 23 - 11) * 0.006
+                c.save(update_fields=["lat", "lng"])
             for d in DOCS:
                 PartnerDoc.objects.get_or_create(companion=c, name=d)
 

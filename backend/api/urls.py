@@ -25,6 +25,7 @@ urlpatterns = [
     path("auth/logout/", TokenBlacklistView.as_view()),
     path("auth/me/", v.MeView.as_view()),
     path("auth/change-password/", v.change_password),
+    path("devices/", v.DeviceView.as_view()),
     path("wallet/", v.WalletView.as_view()),
     path("coupons/", v.CouponListView.as_view()),
     path("cms/", v.cms_public),

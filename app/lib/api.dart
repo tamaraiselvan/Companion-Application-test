@@ -61,6 +61,7 @@ class Api {
   Future<dynamic> post(String path, [Map<String, dynamic>? body]) => _send('POST', path, body: body);
   Future<dynamic> patch(String path, Map<String, dynamic> body) => _send('PATCH', path, body: body);
   Future<dynamic> delete(String path) => _send('DELETE', path);
+  Future<dynamic> deleteWith(String path, Map<String, dynamic> body) => _send('DELETE', path, body: body);
 
   /// Multipart upload (field name "file").
   Future<dynamic> upload(String path, List<int> bytes, String filename, {bool retried = false}) async {

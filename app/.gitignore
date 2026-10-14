@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# local Firebase/build config
+firebase.json
+web/firebase-config.js

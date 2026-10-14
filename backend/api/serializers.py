@@ -1,6 +1,8 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .geo import eta_minutes, haversine_km
+
 from .models import (Booking, ChatMessage, CmsItem, Companion, Coupon, FeatureFlag, Notification,
                      PartnerDoc, Service, SOSAlert, User, WalletTx)
 
@@ -11,8 +13,15 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "name", "email", "phone", "role", "address", "language",
-                  "medical", "emergency_contact", "wallet", "is_active", "date_joined"]
+                  "medical", "emergency_contact", "wallet", "notif_prefs", "is_active", "date_joined"]
         read_only_fields = ["id", "username", "role", "wallet", "is_active", "date_joined"]
+
+
+    def validate_notif_prefs(self, v):
+        from .views import NOTIF_CATEGORIES
+        if not isinstance(v, dict) or any(k not in NOTIF_CATEGORIES or not isinstance(x, bool) for k, x in v.items()):
+            raise serializers.ValidationError(f"Map of {NOTIF_CATEGORIES} to true/false")
+        return v
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -52,7 +61,7 @@ class CompanionSerializer(serializers.ModelSerializer):
         model = Companion
         fields = ["id", "user_id", "name", "service", "service_name", "service_slug", "gender", "age",
                   "languages", "price", "experience", "distance_km", "bio", "skills", "certs", "color",
-                  "available", "status", "rating", "reviews_count", "reviews"]
+                  "lat", "lng", "available", "status", "rating", "reviews_count", "reviews"]
         read_only_fields = ["status", "rating", "reviews_count"]
 
     def get_name(self, c):
@@ -71,14 +80,30 @@ class BookingSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.first_name", read_only=True)
     user_id = serializers.IntegerField(source="user.id", read_only=True)
     rated = serializers.SerializerMethodField()
+    remaining_km = serializers.SerializerMethodField()
+    eta_min = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
         fields = ["id", "code", "user_id", "user_name", "companion", "companion_detail", "date", "time", "duration",
                   "address", "instructions", "payment", "coupon", "subtotal", "discount", "price",
-                  "status", "checked_in_at", "checked_out_at", "lat", "lng", "rated", "created"]
+                  "status", "checked_in_at", "checked_out_at", "dest_lat", "dest_lng", "lat", "lng", "location_at",
+                  "remaining_km", "eta_min", "rated", "created"]
         read_only_fields = ["code", "subtotal", "discount", "price", "status", "checked_in_at",
-                            "checked_out_at", "lat", "lng"]
+                            "checked_out_at", "lat", "lng", "location_at"]
+
+    def _km(self, b):
+        if None in (b.lat, b.lng, b.dest_lat, b.dest_lng):
+            return None
+        return haversine_km(b.lat, b.lng, b.dest_lat, b.dest_lng)
+
+    def get_remaining_km(self, b):
+        km = self._km(b)
+        return None if km is None else round(km, 2)
+
+    def get_eta_min(self, b):
+        km = self._km(b)
+        return None if km is None or b.status != "accepted" else eta_minutes(km)
 
     def get_rated(self, b):
         return hasattr(b, "review")

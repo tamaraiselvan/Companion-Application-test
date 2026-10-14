@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../location.dart';
 import '../state.dart';
 import '../widgets.dart';
+import 'maps.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key});
@@ -403,7 +405,15 @@ class AdminSos extends StatelessWidget {
               child: ListTile(
                 leading: const Text('🆘', style: TextStyle(fontSize: 24)),
                 title: Text('${a['user_name']} · #${a['id']}'),
-                subtitle: Text('${a['created']}${a['lat'] != null ? ' · ${a['lat']}, ${a['lng']}' : ''}'),
+                subtitle: Text('${a['created']}${a['lat'] == null ? ' · no location' : ' · tap to view on map'}'),
+                onTap: a['lat'] == null
+                    ? null
+                    : () => showDialog(
+                        context: ctx,
+                        builder: (_) => Dialog(
+                            child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: SizedBox(width: 480, child: LiveMap(destination: latLngOf(a), height: 360))))),
                 trailing: a['resolved']
                     ? const StatusTag('resolved')
                     : FilledButton(

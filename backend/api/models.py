@@ -15,6 +15,8 @@ class User(AbstractUser):
     emergency_contact = models.CharField(max_length=120, blank=True)
     wallet = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     favorites = models.ManyToManyField("Companion", blank=True, related_name="fans")
+    # Per-category push/in-app notification opt-outs, e.g. {"offers": false}. Missing key = enabled.
+    notif_prefs = models.JSONField(default=dict, blank=True)
 
     @property
     def is_admin_role(self):
@@ -41,7 +43,9 @@ class Companion(models.Model):
     languages = models.JSONField(default=list)
     price = models.PositiveIntegerField(help_text="INR per hour")
     experience = models.PositiveSmallIntegerField(default=1)
-    distance_km = models.FloatField(default=1.0)
+    distance_km = models.FloatField(default=1.0, help_text="Fallback when the client sends no location")
+    lat = models.FloatField(null=True, blank=True, help_text="Base location")
+    lng = models.FloatField(null=True, blank=True)
     bio = models.TextField(blank=True)
     skills = models.JSONField(default=list)
     certs = models.JSONField(default=list)
@@ -79,12 +83,24 @@ class Booking(models.Model):
     status = models.CharField(max_length=12, choices=STATUS, default="pending")
     checked_in_at = models.DateTimeField(null=True, blank=True)
     checked_out_at = models.DateTimeField(null=True, blank=True)
-    lat = models.FloatField(null=True, blank=True)
+    dest_lat = models.FloatField(null=True, blank=True, help_text="Service address location")
+    dest_lng = models.FloatField(null=True, blank=True)
+    lat = models.FloatField(null=True, blank=True, help_text="Companion live location")
     lng = models.FloatField(null=True, blank=True)
+    location_at = models.DateTimeField(null=True, blank=True)
+    arrival_notified = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created"]
+
+
+class Device(models.Model):
+    """Push token (FCM) for a user's phone or browser."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="devices")
+    token = models.CharField(max_length=512, unique=True)
+    platform = models.CharField(max_length=10, choices=[(p, p) for p in ("android", "ios", "web")])
+    updated = models.DateTimeField(auto_now=True)
 
 
 class Review(models.Model):
@@ -107,6 +123,7 @@ class WalletTx(models.Model):
 class Notification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
     icon = models.CharField(max_length=8, default="🔔")
+    category = models.CharField(max_length=12, default="booking")
     title = models.CharField(max_length=120)
     body = models.TextField()
     unread = models.BooleanField(default=True)

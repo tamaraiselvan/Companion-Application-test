@@ -5,3 +5,4 @@ django-cors-headers>=4.4
 dj-database-url>=2.2
 psycopg2-binary>=2.9
 gunicorn>=22
+firebase-admin>=6.5

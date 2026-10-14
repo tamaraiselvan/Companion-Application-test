@@ -14,7 +14,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import serializers as s
-from .models import (Booking, ChatMessage, CmsItem, Companion, Coupon, FeatureFlag, Notification,
+from .geo import ARRIVAL_RADIUS_KM, haversine_km
+from .push import send_push
+from .models import (Booking, ChatMessage, CmsItem, Companion, Coupon, Device, FeatureFlag, Notification,
                      PartnerDoc, Review, Service, SOSAlert, User, WalletTx)
 
 
@@ -29,8 +31,15 @@ class IsPartner(permissions.BasePermission):
         return bool(request.user and request.user.is_authenticated and hasattr(request.user, "companion"))
 
 
-def notify(user, title, body, icon="🔔"):
-    Notification.objects.create(user=user, title=title, body=body, icon=icon)
+NOTIF_CATEGORIES = ("booking", "arrival", "payment", "offers", "emergency")
+
+
+def notify(user, title, body, icon="🔔", category="booking", **data):
+    """In-app notification + push, honouring the user's per-category opt-outs (emergency can't be muted)."""
+    if category != "emergency" and (user.notif_prefs or {}).get(category) is False:
+        return
+    Notification.objects.create(user=user, title=title, body=body, icon=icon, category=category)
+    send_push([user], title, body, {"category": category, **data})
 
 
 def tokens_for(user):
@@ -130,8 +139,20 @@ class CompanionViewSet(viewsets.ReadOnlyModelViewSet):
         if p.get("language"):  # JSON list contains, portable across sqlite/postgres
             qs = [c for c in qs if p["language"] in c.languages]
         order = p.get("ordering")
-        if order in ("distance_km", "-rating", "price") and not isinstance(qs, list):
-            qs = qs.order_by(order)
+        try:
+            lat, lng = float(p["lat"]), float(p["lng"])
+        except (KeyError, ValueError):
+            lat = lng = None
+        if lat is not None:  # real distance from the user's location
+            qs = list(qs)
+            for c in qs:
+                if c.lat is not None:
+                    c.distance_km = round(haversine_km(lat, lng, c.lat, c.lng), 1)
+            if p.get("radius_km"):
+                qs = [c for c in qs if c.distance_km <= float(p["radius_km"])]
+        if order in ("distance_km", "-rating", "price"):
+            key, rev = order.lstrip("-"), order.startswith("-")
+            qs = sorted(qs, key=lambda c: getattr(c, key), reverse=rev) if isinstance(qs, list) else qs.order_by(order)
         return qs
 
     def get_serializer_context(self):
@@ -189,8 +210,9 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
             user.save(update_fields=["wallet"])
             WalletTx.objects.create(user=user, label=f"Booking — {comp}", amount=-total)
         b = ser.save(user=user, coupon=code, subtotal=subtotal, discount=discount, price=total)
-        notify(user, "Booking placed", f"Your booking {b.code} with {comp} is awaiting confirmation.", "🕒")
-        notify(comp.user, "New job request", f"{user.first_name} requested {comp.service.name} on {b.date}.", "🧾")
+        notify(user, "Booking placed", f"Your booking {b.code} with {comp} is awaiting confirmation.", "🕒", booking_id=b.id)
+        notify(comp.user, "New job request", f"{user.first_name} requested {comp.service.name} on {b.date}.", "🧾",
+               booking_id=b.id)
 
     def _transition(self, allowed_from, to, by_partner=None):
         b = self.get_object()
@@ -209,6 +231,7 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         if b.payment == "Wallet" and b.price:
             User.objects.filter(pk=b.user_id).update(wallet=F("wallet") + b.price)
             WalletTx.objects.create(user=b.user, label=f"Refund — {b.code}", amount=b.price)
+            notify(b.user, "Refund processed", f"{inr(b.price)} for {b.code} was returned to your wallet.", "💳", "payment")
 
     @action(detail=True, methods=["post"])
     @transaction.atomic
@@ -216,14 +239,14 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         b = self._transition(["pending", "accepted"], "cancelled", by_partner=False)
         b.save()
         self._refund(b)
-        notify(b.companion.user, "Booking cancelled", f"{b.code} was cancelled by the customer.", "❌")
+        notify(b.companion.user, "Booking cancelled", f"{b.code} was cancelled by the customer.", "❌", booking_id=b.id)
         return Response(self.get_serializer(b).data)
 
     @action(detail=True, methods=["post"])
     def accept(self, request, pk=None):
         b = self._transition(["pending"], "accepted", by_partner=True)
         b.save()
-        notify(b.user, "Booking confirmed", f"{b.companion} accepted {b.code} for {b.date}, {b.time:%H:%M}.", "✅")
+        notify(b.user, "Booking confirmed", f"{b.companion} accepted {b.code} for {b.date}, {b.time:%H:%M}.", "✅", booking_id=b.id)
         return Response(self.get_serializer(b).data)
 
     @action(detail=True, methods=["post"])
@@ -232,7 +255,7 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         b = self._transition(["pending"], "rejected", by_partner=True)
         b.save()
         self._refund(b)
-        notify(b.user, "Booking declined", f"{b.companion} could not take {b.code}. Any wallet payment was refunded.", "⚠️")
+        notify(b.user, "Booking declined", f"{b.companion} could not take {b.code}. Any wallet payment was refunded.", "⚠️", booking_id=b.id)
         return Response(self.get_serializer(b).data)
 
     @action(detail=True, methods=["post"], url_path="check-in")
@@ -240,7 +263,7 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         b = self._transition(["accepted"], "in_progress")
         b.checked_in_at = timezone.now()
         b.save()
-        notify(b.user, "Service started", f"{b.companion} has checked in for {b.code}.", "🚗")
+        notify(b.user, "Service started", f"{b.companion} has checked in for {b.code}.", "🚗", "arrival", booking_id=b.id)
         return Response(self.get_serializer(b).data)
 
     @action(detail=True, methods=["post"], url_path="check-out")
@@ -248,7 +271,7 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         b = self._transition(["in_progress"], "completed")
         b.checked_out_at = timezone.now()
         b.save()
-        notify(b.user, "Rate your companion", f"How was your session with {b.companion}?", "⭐")
+        notify(b.user, "Rate your companion", f"How was your session with {b.companion}?", "⭐", booking_id=b.id)
         return Response(self.get_serializer(b).data)
 
     @action(detail=True, methods=["post"])
@@ -256,9 +279,24 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         b = self.get_object()
         if b.companion.user_id != request.user.id:
             raise PermissionDenied()
-        b.lat, b.lng = float(request.data["lat"]), float(request.data["lng"])
-        b.save(update_fields=["lat", "lng"])
-        return Response({"ok": True})
+        if b.status not in ("accepted", "in_progress"):
+            raise ValidationError("Location sharing is only active for accepted or ongoing jobs.")
+        try:
+            b.lat, b.lng = float(request.data["lat"]), float(request.data["lng"])
+        except (KeyError, TypeError, ValueError):
+            raise ValidationError({"lat": "lat and lng are required numbers"})
+        if not (-90 <= b.lat <= 90 and -180 <= b.lng <= 180):
+            raise ValidationError({"lat": "Out of range"})
+        b.location_at = timezone.now()
+        fields = ["lat", "lng", "location_at"]
+        if (b.status == "accepted" and not b.arrival_notified and b.dest_lat is not None
+                and haversine_km(b.lat, b.lng, b.dest_lat, b.dest_lng) <= ARRIVAL_RADIUS_KM):
+            b.arrival_notified = True
+            fields.append("arrival_notified")
+            notify(b.user, "Your companion has arrived", f"{b.companion} is at your location for {b.code}.", "📍",
+                   "arrival", booking_id=b.id)
+        b.save(update_fields=fields)
+        return Response(self.get_serializer(b).data)
 
     @action(detail=True, methods=["post"])
     @transaction.atomic
@@ -279,6 +317,24 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         return Response({"ok": True})
 
 
+def inr(n):
+    return f"₹{int(n)}"
+
+
+# ---------- devices (push tokens) ----------
+class DeviceView(APIView):
+    def post(self, request):
+        token, platform = (request.data.get("token") or "").strip(), request.data.get("platform", "")
+        if not token or len(token) > 512 or platform not in ("android", "ios", "web"):
+            raise ValidationError("token and platform (android|ios|web) are required")
+        Device.objects.update_or_create(token=token, defaults={"user": request.user, "platform": platform})
+        return Response({"ok": True}, status=201)
+
+    def delete(self, request):
+        Device.objects.filter(user=request.user, token=request.data.get("token", "")).delete()
+        return Response(status=204)
+
+
 # ---------- wallet / notifications / coupons ----------
 class WalletView(APIView):
     def get(self, request):
@@ -295,6 +351,7 @@ class WalletView(APIView):
         u.wallet += Decimal(amt)
         u.save(update_fields=["wallet"])
         WalletTx.objects.create(user=u, label="Added money", amount=amt)
+        notify(u, "Money added", f"{inr(amt)} was added to your wallet.", "💳", "payment")
         return Response({"balance": u.wallet})
 
 
@@ -353,7 +410,8 @@ class SOSView(generics.CreateAPIView):
     def perform_create(self, ser):
         a = ser.save(user=self.request.user)
         for admin in User.objects.filter(Q(role="admin") | Q(is_superuser=True)):
-            notify(admin, "🆘 SOS alert", f"{self.request.user.first_name} triggered SOS (#{a.id}).", "🆘")
+            notify(admin, "SOS alert", f"{self.request.user.first_name} triggered SOS (#{a.id}).", "🆘", "emergency",
+                   sos_id=a.id)
 
 
 BOT = {
@@ -524,6 +582,9 @@ def admin_broadcast(request):
     title, body = request.data.get("title", "Announcement"), request.data.get("body", "")
     if not body:
         raise ValidationError({"body": "Required"})
-    users = User.objects.filter(is_active=True, role=request.data.get("role", "user"))
-    Notification.objects.bulk_create([Notification(user=u, title=title, body=body, icon="📣") for u in users])
-    return Response({"sent": users.count()})
+    users = list(User.objects.filter(is_active=True, role=request.data.get("role", "user"))
+                 .exclude(notif_prefs__offers=False))
+    Notification.objects.bulk_create([Notification(user=u, title=title, body=body, icon="📣", category="offers")
+                                      for u in users])
+    send_push(users, title, body, {"category": "offers"})
+    return Response({"sent": len(users)})
