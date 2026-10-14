@@ -1,0 +1,24 @@
+name: maitrio
+description: Maitrio — AI-matched companion booking (iOS, Android, Web).
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  http_parser: ^4.0.2
+  file_picker: ^8.1.2
+  provider: ^6.1.2
+  flutter_secure_storage: ^9.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

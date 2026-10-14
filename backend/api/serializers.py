@@ -69,11 +69,12 @@ class CompanionSerializer(serializers.ModelSerializer):
 class BookingSerializer(serializers.ModelSerializer):
     companion_detail = CompanionSerializer(source="companion", read_only=True)
     user_name = serializers.CharField(source="user.first_name", read_only=True)
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
     rated = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
-        fields = ["id", "code", "user_name", "companion", "companion_detail", "date", "time", "duration",
+        fields = ["id", "code", "user_id", "user_name", "companion", "companion_detail", "date", "time", "duration",
                   "address", "instructions", "payment", "coupon", "subtotal", "discount", "price",
                   "status", "checked_in_at", "checked_out_at", "lat", "lng", "rated", "created"]
         read_only_fields = ["code", "subtotal", "discount", "price", "status", "checked_in_at",
