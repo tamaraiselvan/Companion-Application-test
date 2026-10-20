@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../api.dart';
 import '../state.dart';
 import '../widgets.dart';
 
@@ -133,7 +134,15 @@ class _LoginState extends State<LoginScreen> {
                     controller: pw,
                     obscureText: !otp,
                     keyboardType: otp ? TextInputType.number : null,
-                    decoration: InputDecoration(labelText: otp ? 'OTP' : 'Password'),
+                    decoration: InputDecoration(
+                      labelText: otp ? '6-digit code' : 'Password',
+                      suffixIcon: otp
+                          ? TextButton(
+                              onPressed: () => guard(context, () => Api.I.post('/auth/otp/request/', {'phone': id.text.trim()}),
+                                  ok: 'Code sent by SMS'),
+                              child: const Text('Send code'))
+                          : null,
+                    ),
                     onSubmitted: (_) => submit()),
                 const SizedBox(height: 18),
                 FilledButton(onPressed: busy ? null : submit, child: Text(busy ? 'Please wait…' : 'Continue')),

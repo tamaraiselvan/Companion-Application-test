@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../checkout.dart';
 import '../state.dart';
 import '../widgets.dart';
 import 'common.dart';
@@ -385,7 +386,16 @@ class WalletTab extends StatelessWidget {
                   ActionChip(
                       label: Text('+ ₹$a'),
                       onPressed: () async {
-                        await guard(ctx, () => Api.I.post('/wallet/', {'amount': a}), ok: '₹$a added');
+                        final r = await guard(ctx, () => Api.I.post('/wallet/', {'amount': a}));
+                        if (r == null || !ctx.mounted) return;
+                        if (r['checkout'] != null) {
+                          final paid = await payAndVerify(ctx, r['checkout']);
+                          if (!ctx.mounted) return;
+                          toast(ctx, paid ? '₹$a added' : 'Payment not completed');
+                        } else {
+                          toast(ctx, '₹$a added');
+                        }
+                        ctx.read<AppState>().refreshMe();
                         reload();
                       }),
               ]),

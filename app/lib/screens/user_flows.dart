@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../checkout.dart';
 import '../location.dart';
 import '../state.dart';
 import '../widgets.dart';
@@ -118,10 +119,24 @@ class _BookingWizardState extends State<BookingWizard> {
           'coupon': coupon.text.trim(),
         }));
     if (!mounted) return;
+    var booking = b;
+    if (booking != null && booking['checkout'] != null) {
+      // Online payment: the booking only reaches the Fellow after the payment is verified.
+      final paid = await payAndVerify(context, booking['checkout']);
+      if (!mounted) return;
+      if (!paid) {
+        await guard(context, () => Api.I.post('/bookings/${booking!['id']}/cancel/'));
+        if (!mounted) return;
+        setState(() => busy = false);
+        return toast(context, 'Payment not completed — the booking was cancelled. Please try again.');
+      }
+      booking = await guard(context, () => Api.I.get('/bookings/${booking!['id']}/'));
+      if (!mounted) return;
+    }
     setState(() => busy = false);
-    if (b != null) {
+    if (booking != null) {
       context.read<AppState>().refreshMe();
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ConfirmationScreen(b)));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ConfirmationScreen(booking!)));
     }
   }
 

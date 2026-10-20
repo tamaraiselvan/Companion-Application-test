@@ -80,12 +80,13 @@ flutter build apk --release --dart-define=API_BASE=https://api.YOURDOMAIN/api/v1
 - Maps: companion map, address pin picker, live tracking with ETA and arrival alert
 - Push notifications (Firebase Cloud Messaging) with per-category preferences
 - Security: HTTPS-only in production, JWT, role checks, rate limiting, upload checks
-- **Backend:** real SMS OTP (MSG91 or Twilio), Razorpay orders, signature verification, webhook and refunds
+- Real SMS OTP login: backend (MSG91 or Twilio) and the app's "Send code" button
+- Razorpay payments end to end: backend orders, verification, webhook and refunds; app checkout on Android and iOS (`razorpay_flutter`) and Web (checkout.js). If a customer abandons checkout, the booking is cancelled automatically.
 - 14 backend tests and 2 Flutter tests passing
 - Business deck: `dayfello_Bizentrix_Business_Presentation.pptx` (sent in chat; not in the repo)
 
 ### In progress
-- **App side of OTP and payments:** the "Send OTP" button and the Razorpay checkout in Flutter (Android/iOS via `razorpay_flutter`, Web via checkout.js)
+- Android release signing, app icon and splash, legal pages, Docker and CI (next up)
 
 ### Pending (launch blockers first)
 1. Android release signing (`key.properties`) and iOS signing team and push capability
@@ -104,6 +105,10 @@ flutter build apk --release --dart-define=API_BASE=https://api.YOURDOMAIN/api/v1
 - OpenStreetMap's public tile server is not allowed for production traffic. Set `MAP_TILE_URL`.
 
 ## Change log
+### 2026-10-20 (2)
+- App: a "Send code" button on OTP login; Razorpay checkout for bookings and wallet top-ups (Android, iOS, Web), verified by the backend before the booking reaches the Fellow. An unpaid checkout cancels the booking.
+- Verified: Flutter analysis clean, 2 Flutter tests pass, web build compiles.
+
 ### 2026-10-20
 - Added real SMS OTP login: request and verify endpoints, MSG91 or Twilio, hashed codes, expiry, cooldown and lockout.
 - **Fixed:** wrong OTP attempts were rolled back along with the error, so the lockout never triggered. Attempts are now committed before the error is returned.
