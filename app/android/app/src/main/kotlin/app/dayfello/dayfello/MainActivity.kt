@@ -1,4 +1,4 @@
-package app.maitrio.maitrio
+package app.dayfello.dayfello
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -24,11 +24,11 @@ Future<void> main() async {
     nav.push(MaterialPageRoute(builder: (_) => id != null ? TrackingScreen(id) : const NotificationsScreen()));
     state.refreshUnread();
   };
-  runApp(ChangeNotifierProvider.value(value: state..init(), child: const MaitrioApp()));
+  runApp(ChangeNotifierProvider.value(value: state..init(), child: const DayfelloApp()));
 }
 
-class MaitrioApp extends StatelessWidget {
-  const MaitrioApp({super.key});
+class DayfelloApp extends StatelessWidget {
+  const DayfelloApp({super.key});
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
@@ -41,7 +41,7 @@ class MaitrioApp extends StatelessWidget {
       home = switch (s.role) { 'admin' => const AdminShell(), 'partner' => const PartnerShell(), _ => const UserShell() };
     }
     return MaterialApp(
-      title: 'Maitrio',
+      title: 'dayfello',
       debugShowCheckedModeBanner: false,
       navigatorKey: Push.navigatorKey,
       scaffoldMessengerKey: Push.messengerKey,

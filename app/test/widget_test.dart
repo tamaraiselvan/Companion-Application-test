@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:maitrio/screens/auth.dart';
-import 'package:maitrio/widgets.dart';
+import 'package:dayfello/screens/auth.dart';
+import 'package:dayfello/widgets.dart';
 import 'package:flutter/material.dart';
 
 void main() {

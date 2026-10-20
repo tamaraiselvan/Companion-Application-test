@@ -1,4 +1,4 @@
-"""Maitrio backend settings. All secrets/config come from environment variables."""
+"""dayfello backend settings. All secrets/config come from environment variables."""
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -59,7 +59,7 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = "config.wsgi.application"
 
-# PostgreSQL via DATABASE_URL, e.g. postgres://user:pass@host:5432/maitrio
+# PostgreSQL via DATABASE_URL, e.g. postgres://user:pass@host:5432/dayfello
 DATABASES = {"default": dj_database_url.config(
     default=os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
     conn_max_age=600,

@@ -5,12 +5,12 @@ from django.db import transaction
 from api.models import CmsItem, Companion, Coupon, FeatureFlag, Notification, PartnerDoc, Service, User, WalletTx
 
 SERVICES = [
-    ("senior", "Senior Maitrion", "🌿", "#7FA69A", ["Walking companion", "Reading", "Shopping", "Hospital visit", "Daily care", "Home conversation"]),
-    ("patient", "Patient Maitrion", "🏥", "#E8A33D", ["Hospital assistance", "Doctor consultation", "Medicine collection", "Home recovery support"]),
-    ("child", "Child Maitrion", "🎒", "#FF6F5E", ["School pickup", "Homework", "Playtime", "Activity support"]),
-    ("travel", "Travel Maitrion", "✈️", "#5B8AA6", ["Airport assistance", "Local guide", "Shopping", "Tourism", "Business meetings"]),
-    ("pet", "Pet Maitrion", "🐾", "#9A7FA6", ["Dog walking", "Pet sitting", "Vet visit", "Grooming assistance"]),
-    ("event", "Event Maitrion", "🎉", "#C97F3A", ["Weddings", "Conferences", "Family functions", "Business events"]),
+    ("senior", "Senior Fellow", "🌿", "#7FA69A", ["Walking companion", "Reading", "Shopping", "Hospital visit", "Daily care", "Home conversation"]),
+    ("patient", "Patient Fellow", "🏥", "#E8A33D", ["Hospital assistance", "Doctor consultation", "Medicine collection", "Home recovery support"]),
+    ("child", "Child Fellow", "🎒", "#FF6F5E", ["School pickup", "Homework", "Playtime", "Activity support"]),
+    ("travel", "Travel Fellow", "✈️", "#5B8AA6", ["Airport assistance", "Local guide", "Shopping", "Tourism", "Business meetings"]),
+    ("pet", "Pet Fellow", "🐾", "#9A7FA6", ["Dog walking", "Pet sitting", "Vet visit", "Grooming assistance"]),
+    ("event", "Event Fellow", "🎉", "#C97F3A", ["Weddings", "Conferences", "Family functions", "Business events"]),
     ("shopping", "Shopping Assistant", "🛍️", "#C8657F", ["Grocery run", "Market shopping", "Gift selection", "Returns & exchanges"]),
     ("family", "Family Assistant", "👨‍👩‍👧", "#4E8B7C", ["Household errands", "Appointments & bills", "Elder & child coordination", "Festival prep"]),
     ("railway", "Railway Assistant", "🚆", "#3F6FB5", ["Ticket booking", "PNR & seat help", "Platform assistance", "Luggage & porter"]),
@@ -27,7 +27,7 @@ class Command(BaseCommand):
     help = "Seed demo data"
 
     def add_arguments(self, parser):
-        parser.add_argument("--password", default="Maitrio@123")
+        parser.add_argument("--password", default="Dayfello@123")
 
     @transaction.atomic
     def handle(self, *args, password, **kw):
@@ -43,16 +43,16 @@ class Command(BaseCommand):
                 u.save()
             return u
 
-        admin = mk("admin", "Admin", role="admin", email="admin@maitrio.app", phone="+919000000001", is_staff=True, is_superuser=True)
+        admin = mk("admin", "Admin", role="admin", email="admin@dayfello.app", phone="+919000000001", is_staff=True, is_superuser=True)
         user = mk("+919876543210", "Ananya", "Subramaniam", email="ananya@example.com", phone="+919876543210",
                   address="12, Kasturi Rangan Rd, Chennai", wallet=1250, medical="No known allergies. Mild knee arthritis.")
         if not WalletTx.objects.filter(user=user).exists():
             WalletTx.objects.create(user=user, label="Added money", amount=1000)
-            Notification.objects.create(user=user, icon="🎁", title="New offer", body="Get 20% off Senior Maitrion bookings this week.")
+            Notification.objects.create(user=user, icon="🎁", title="New offer", body="Get 20% off Senior Fellow bookings this week.")
 
         for i, full in enumerate(NAMES):
             first, last = full.split(" ", 1)
-            u = mk(f"+91900001{i:04d}", first, last, role="partner", phone=f"+91900001{i:04d}", email=f"partner{i}@maitrio.app")
+            u = mk(f"+91900001{i:04d}", first, last, role="partner", phone=f"+91900001{i:04d}", email=f"partner{i}@dayfello.app")
             svc = svcs[i % len(svcs)]
             c, _ = Companion.objects.get_or_create(user=u, defaults=dict(
                 service=svc, gender="Male" if i % 3 == 1 else "Female", age=24 + (i * 3) % 20,
@@ -77,7 +77,7 @@ class Command(BaseCommand):
         if not CmsItem.objects.exists():
             CmsItem.objects.bulk_create([
                 CmsItem(kind="banner", title="Festive Care Offer — 20% off"),
-                CmsItem(kind="banner", title="New: Pet Maitrion now in Chennai"),
+                CmsItem(kind="banner", title="New: Pet Fellow now in Chennai"),
                 CmsItem(kind="faq", title="How do I cancel a booking?", body="Go to My Bookings → Upcoming → Cancel."),
                 CmsItem(kind="faq", title="How is my companion verified?", body="ID, background and police verification."),
             ])

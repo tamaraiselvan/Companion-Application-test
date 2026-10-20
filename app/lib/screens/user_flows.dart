@@ -529,7 +529,7 @@ class InvoiceScreen extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(children: [
-              row('Maitrio', b['code'], bold: true),
+              row('dayfello', b['code'], bold: true),
               const Divider(),
               row('Companion', b['companion_detail']['name']),
               row('Service', b['companion_detail']['service_name']),

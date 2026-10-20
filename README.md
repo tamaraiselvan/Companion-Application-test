@@ -1,4 +1,4 @@
-# Maitrio — Companion booking platform
+# dayfello — Companion booking platform
 
 | Folder | What |
 |---|---|
@@ -13,7 +13,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env          # edit values, then export them (or use your host's env settings)
 python manage.py migrate
-python manage.py seed         # demo data; all demo passwords: Maitrio@123
+python manage.py seed         # demo data; all demo passwords: Dayfello@123
 python manage.py runserver    # dev only — use gunicorn in production:
 gunicorn config.wsgi -b 0.0.0.0:8000 -w 3
 ```

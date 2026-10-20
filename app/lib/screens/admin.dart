@@ -16,7 +16,7 @@ class AdminShell extends StatefulWidget {
 class _AdminShellState extends State<AdminShell> {
   int tab = 0;
   static const nav = [
-    (Icons.dashboard_outlined, 'Dashboard'), (Icons.people_outline, 'Users'), (Icons.handshake_outlined, 'Maitrions'),
+    (Icons.dashboard_outlined, 'Dashboard'), (Icons.people_outline, 'Users'), (Icons.handshake_outlined, 'Fellows'),
     (Icons.event_note_outlined, 'Bookings'), (Icons.sell_outlined, 'Coupons'), (Icons.web_outlined, 'CMS'),
     (Icons.campaign_outlined, 'Broadcast'), (Icons.flag_outlined, 'Feature flags'), (Icons.sos_outlined, 'SOS alerts'),
   ];
@@ -43,7 +43,7 @@ class _AdminShellState extends State<AdminShell> {
             unselectedIconTheme: const IconThemeData(color: Colors.white70),
             leading: const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('Maitrio Admin', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600))),
+                child: Text('dayfello Admin', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600))),
             trailing: Theme(data: ThemeData.dark(), child: logout),
             destinations: [for (final n in nav) NavigationRailDestination(icon: Icon(n.$1), label: Text(n.$2))],
           ),
@@ -60,7 +60,7 @@ class _AdminShellState extends State<AdminShell> {
           Navigator.pop(context);
         },
         children: [
-          const Padding(padding: EdgeInsets.all(20), child: Text('Maitrio Admin', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600))),
+          const Padding(padding: EdgeInsets.all(20), child: Text('dayfello Admin', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600))),
           for (final n in nav) NavigationDrawerDestination(icon: Icon(n.$1), label: Text(n.$2)),
         ],
       ),
@@ -86,7 +86,7 @@ class AdminDashboard extends StatelessWidget {
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final e in {
               'Total users': '${s['total_users']}', 'Active users': '${s['active_users']}',
-              'Maitrions': '${s['total_companions']}', 'Pending approvals': '${s['pending_companions']}',
+              'Fellows': '${s['total_companions']}', 'Pending approvals': '${s['pending_companions']}',
               'Live services': '${s['live_services']}', "Today's bookings": '${s['today_bookings']}',
               'Revenue': inr(s['revenue']), 'Open SOS': '${s['open_sos']}',
             }.entries)
@@ -168,7 +168,7 @@ class AdminCompanions extends StatelessWidget {
   Widget build(BuildContext context) => Loader(
         load: () => Api.I.get('/admin/companions/'),
         builder: (ctx, d, reload) => ListView(children: [
-          _title('Maitrion management', 'Approve, verify and manage companion partners.'),
+          _title('Fellow management', 'Approve, verify and manage companion partners.'),
           for (final c in d)
             Card(
               child: ListTile(

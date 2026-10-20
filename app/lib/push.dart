@@ -56,7 +56,7 @@ class Push {
         );
         await _local
             .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-            ?.createNotificationChannel(const AndroidNotificationChannel('maitrio', 'Maitrio alerts',
+            ?.createNotificationChannel(const AndroidNotificationChannel('dayfello', 'dayfello alerts',
                 description: 'Bookings, arrivals, payments and safety alerts', importance: Importance.high));
       }
       FirebaseMessaging.onMessage.listen(_showForeground);
@@ -85,7 +85,7 @@ class Push {
       title: n.title,
       body: n.body,
       notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails('maitrio', 'Maitrio alerts', importance: Importance.high, priority: Priority.high),
+          android: AndroidNotificationDetails('dayfello', 'dayfello alerts', importance: Importance.high, priority: Priority.high),
           iOS: DarwinNotificationDetails()),
       payload: m.data['booking_id']?.toString(),
     );

@@ -36,7 +36,7 @@ def _send(tokens, title, body, data):
             tokens=tokens,
             notification=messaging.Notification(title=title, body=body),
             data={k: str(v) for k, v in (data or {}).items()},
-            android=messaging.AndroidConfig(priority="high", notification=messaging.AndroidNotification(channel_id="maitrio")),
+            android=messaging.AndroidConfig(priority="high", notification=messaging.AndroidNotification(channel_id="dayfello")),
             apns=messaging.APNSConfig(payload=messaging.APNSPayload(aps=messaging.Aps(sound="default"))),
         )
         res = messaging.send_each_for_multicast(msg, app=app)

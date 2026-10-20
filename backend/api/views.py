@@ -86,7 +86,7 @@ class RegisterView(generics.CreateAPIView):
         ser = self.get_serializer(data=request.data)
         ser.is_valid(raise_exception=True)
         user = ser.save()
-        notify(user, "Welcome to Maitrio", "Your account is ready. Book your first companion!", "🎉")
+        notify(user, "Welcome to dayfello", "Your account is ready. Book your first companion!", "🎉")
         return Response(tokens_for(user), status=status.HTTP_201_CREATED)
 
 
@@ -529,7 +529,7 @@ class AdminCompanionViewSet(viewsets.ModelViewSet):
         c = self.get_object()
         c.status = status_
         c.save(update_fields=["status"])
-        notify(c.user, f"Profile {status_}", f"Your Maitrion profile was {status_} by the admin team.", "🛡️")
+        notify(c.user, f"Profile {status_}", f"Your Fellow profile was {status_} by the admin team.", "🛡️")
         return Response(self.get_serializer(c).data)
 
     @action(detail=True, methods=["post"])

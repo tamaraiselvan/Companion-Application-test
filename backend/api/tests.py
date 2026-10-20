@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from .models import Booking, Device, Notification, User
 
-PW = "Maitrio@123"
+PW = "Dayfello@123"
 
 
 class FlowTests(APITestCase):

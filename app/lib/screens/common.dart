@@ -51,7 +51,7 @@ class SosSheet extends StatefulWidget {
 class _SosSheetState extends State<SosSheet> {
   int stage = 0;
   String? error;
-  static const stages = ['Sending alert to Maitrio safety team…', 'Notifying your emergency contact…', 'Admin team alerted', 'Help is on the way'];
+  static const stages = ['Sending alert to dayfello safety team…', 'Notifying your emergency contact…', 'Admin team alerted', 'Help is on the way'];
 
   @override
   void initState() {
@@ -94,7 +94,7 @@ class ChatbotSheet extends StatefulWidget {
 }
 
 class _ChatbotSheetState extends State<ChatbotSheet> {
-  final msgs = <(bool, String)>[(false, "Hi! I'm the Maitrio Assistant 👋 How can I help?")];
+  final msgs = <(bool, String)>[(false, "Hi! I'm the dayfello Assistant 👋 How can I help?")];
   static const opts = ['Booking help', 'Pricing', 'Cancellation', 'FAQ', 'Emergency'];
 
   Future<void> ask(String q) async {
@@ -109,7 +109,7 @@ class _ChatbotSheetState extends State<ChatbotSheet> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(children: [
-            const Text('🤖 Maitrio Assistant', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const Text('🤖 dayfello Assistant', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             Expanded(child: ListView(children: [for (final m in msgs) Bubble(m.$2, mine: m.$1)])),
             Wrap(spacing: 6, children: [for (final o in opts) ActionChip(label: Text(o), onPressed: () => ask(o))]),
           ]),

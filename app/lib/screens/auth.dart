@@ -13,7 +13,7 @@ class SplashScreen extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('🤝', style: TextStyle(fontSize: 56)),
         SizedBox(height: 12),
-        Text('Maitrio', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600)),
+        Text('dayfello', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600)),
         SizedBox(height: 20),
         CircularProgressIndicator(color: C.coral),
       ])));

@@ -9,7 +9,7 @@ import '../widgets.dart';
 /// MAP_TILE_URL to a provider you have a plan with (MapTiler, Stadia, Mapbox, self-hosted…).
 const tileUrl = String.fromEnvironment('MAP_TILE_URL', defaultValue: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
 
-TileLayer tiles() => TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'app.maitrio.maitrio', maxZoom: 19);
+TileLayer tiles() => TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'app.dayfello.dayfello', maxZoom: 19);
 
 Marker pin(LatLng p, {Color color = C.coral, IconData icon = Icons.location_on, double size = 40, VoidCallback? onTap}) => Marker(
       point: p,
