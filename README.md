@@ -65,8 +65,12 @@ For the web build, add your web origin to `CORS_ALLOWED_ORIGINS` on the backend.
   5. **iOS:** enable the Push Notifications capability in Xcode and upload an APNs key to Firebase.
 - Tapping a push opens the related booking. Invalid tokens are pruned automatically.
 
+## Payments & OTP
+- **Razorpay:** set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET`. Online bookings start as `awaiting_payment` and are confirmed by `/payments/verify/` or the webhook at `/payments/webhook/`. Without keys, payments are mocked only when `PAYMENTS_MOCK` is true (the default in DEBUG).
+- **SMS OTP:** set `SMS_PROVIDER=msg91|twilio` and that provider's keys. `DEMO_OTP` is for development only.
+
+See `HANDOVER.md` for full status.
+
 ## Still mocked / next integrations
-- **Payments:** UPI, Card and Net Banking are recorded but not charged, and wallet top-up credits immediately. Integrate a gateway (Razorpay, Stripe…) and credit only from its verified webhook.
-- **OTP:** `DEMO_OTP` stands in for SMS. Plug a provider into `OtpVerifyView`.
 - **Voice/video calls:** UI only. Integrate Agora, Twilio or WebRTC, with call tokens issued by the backend.
 - **Turn-by-turn routing:** the map draws a straight line; add a routing API (OSRM, Google Directions) for road routes and traffic-aware ETA.

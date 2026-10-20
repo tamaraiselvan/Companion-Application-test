@@ -124,3 +124,7 @@ X_FRAME_OPTIONS = "DENY"
 # Demo OTP: when set, this code is accepted for phone login. Leave empty in production
 # and plug in an SMS provider in api/views.py::OtpVerifyView.
 DEMO_OTP = os.environ.get("DEMO_OTP", "123456" if DEBUG else "")
+
+# Online payments run in mock mode (auto-confirmed, no money moves) only when this is true and Razorpay keys are
+# absent. Never enable in production.
+PAYMENTS_MOCK = env_bool("PAYMENTS_MOCK", DEBUG)

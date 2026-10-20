@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 
 from django.conf import settings
@@ -14,9 +15,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import serializers as s
+from . import payments as pay
 from .geo import ARRIVAL_RADIUS_KM, haversine_km
+from .sms import send_otp
 from .push import send_push
-from .models import (Booking, ChatMessage, CmsItem, Companion, Coupon, Device, FeatureFlag, Notification,
+from .models import (Booking, ChatMessage, CmsItem, Companion, Coupon, Device, FeatureFlag, Notification, OtpCode, Payment,
                      PartnerDoc, Review, Service, SOSAlert, User, WalletTx)
 
 
@@ -62,19 +65,67 @@ class LoginView(TokenObtainPairView):
         return Response({**ser.validated_data, "user": s.UserSerializer(ser.user).data})
 
 
-class OtpVerifyView(APIView):
-    """Phone + OTP login. Integrate an SMS provider here; DEMO_OTP is accepted when configured."""
+OTP_TTL = timezone.timedelta(minutes=5)
+OTP_MAX_ATTEMPTS = 5
+
+
+def _otp_hash(phone, code):
+    import hashlib
+    import hmac as _h
+    return _h.new(settings.SECRET_KEY.encode(), f"{phone}:{code}".encode(), hashlib.sha256).hexdigest()
+
+
+class OtpRequestView(APIView):
+    """Send a 6-digit login code by SMS. Same response whether or not the number has an account."""
     permission_classes = [permissions.AllowAny]
     throttle_scope = "auth"
 
     def post(self, request):
-        phone, otp = request.data.get("phone", ""), request.data.get("otp", "")
-        if not settings.DEMO_OTP or otp != settings.DEMO_OTP:
-            raise ValidationError({"otp": "Invalid OTP"})
+        import secrets
+        phone = (request.data.get("phone") or "").strip()
+        if not phone.startswith("+") or not phone[1:].isdigit() or not 8 <= len(phone) <= 16:
+            raise ValidationError({"phone": "Use international format, e.g. +919876543210"})
+        recent = OtpCode.objects.filter(phone=phone, created__gte=timezone.now() - timezone.timedelta(seconds=30))
+        if recent.exists():
+            raise ValidationError({"phone": "Please wait 30 seconds before requesting another code"})
+        if User.objects.filter(phone=phone, is_active=True).exists():
+            code = f"{secrets.randbelow(10 ** 6):06d}"
+            OtpCode.objects.filter(phone=phone, used=False).update(used=True)
+            OtpCode.objects.create(phone=phone, code_hash=_otp_hash(phone, code), expires=timezone.now() + OTP_TTL)
+            try:
+                send_otp(phone, code)
+            except Exception:
+                raise ValidationError({"phone": "Could not send SMS right now, please try again"})
+        return Response({"sent": True, "expires_in": int(OTP_TTL.total_seconds())})
+
+
+class OtpVerifyView(APIView):
+    """Phone + OTP login. DEMO_OTP (dev only) is also accepted when configured."""
+    permission_classes = [permissions.AllowAny]
+    throttle_scope = "auth"
+
+    def post(self, request):
+        phone, otp = (request.data.get("phone") or "").strip(), (request.data.get("otp") or "").strip()
         user = User.objects.filter(phone=phone, is_active=True).first()
-        if not user:
-            raise ValidationError({"phone": "No account for this number"})
+        ok = (bool(settings.DEMO_OTP) and otp == settings.DEMO_OTP) or self._check(phone, otp)
+        # Raise only after the attempt counter is committed, otherwise the rollback would undo the lockout.
+        if not ok or not user:
+            raise ValidationError({"otp": "Invalid or expired code"})
         return Response(tokens_for(user))
+
+    @staticmethod
+    @transaction.atomic
+    def _check(phone, otp):
+        import hmac as _h
+        rec = (OtpCode.objects.select_for_update().filter(phone=phone, used=False, expires__gt=timezone.now())
+               .order_by("-created").first())
+        if not rec:
+            return False
+        rec.attempts += 1
+        ok = rec.attempts <= OTP_MAX_ATTEMPTS and _h.compare_digest(rec.code_hash, _otp_hash(phone, otp))
+        rec.used = ok or rec.attempts >= OTP_MAX_ATTEMPTS
+        rec.save(update_fields=["attempts", "used"])
+        return ok
 
 
 class RegisterView(generics.CreateAPIView):
@@ -186,6 +237,8 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
             qs = qs.filter(companion=u.companion)
         else:
             qs = qs.filter(Q(user=u) | Q(companion__user=u))
+        if not u.is_admin_role:  # unpaid requests are invisible to the companion until payment succeeds
+            qs = qs.exclude(Q(status="awaiting_payment") & ~Q(user=u))
         st = self.request.query_params.get("status")
         if st:
             qs = qs.filter(status__in=st.split(","))
@@ -203,16 +256,35 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
                 raise ValidationError({"coupon": "Invalid or expired coupon"})
             discount = cp.discount_for(subtotal)
         total = subtotal - discount
-        if ser.validated_data.get("payment") == "Wallet":
+        method = ser.validated_data.get("payment", "UPI")
+        online = method in ("UPI", "Card", "Net Banking") and total > 0
+        if online and not (pay.enabled() or pay.mock_allowed()):
+            raise ValidationError({"payment": "Online payments are not available right now. Choose wallet or cash."})
+        if method == "Wallet":
             if user.wallet < total:
                 raise ValidationError({"payment": "Insufficient wallet balance"})
             user.wallet -= Decimal(total)
             user.save(update_fields=["wallet"])
             WalletTx.objects.create(user=user, label=f"Booking — {comp}", amount=-total)
-        b = ser.save(user=user, coupon=code, subtotal=subtotal, discount=discount, price=total)
-        notify(user, "Booking placed", f"Your booking {b.code} with {comp} is awaiting confirmation.", "🕒", booking_id=b.id)
-        notify(comp.user, "New job request", f"{user.first_name} requested {comp.service.name} on {b.date}.", "🧾",
-               booking_id=b.id)
+        status_, pstatus = "pending", {"Wallet": "paid", "Cash": "cash"}.get(method, "paid" if total == 0 else "unpaid")
+        if online and pay.enabled():
+            status_ = "awaiting_payment"
+        b = ser.save(user=user, coupon=code, subtotal=subtotal, discount=discount, price=total, status=status_,
+                     payment_status="paid" if online and pay.mock_allowed() else pstatus)
+        if status_ == "awaiting_payment":
+            order = pay.create_order(total, b.code, {"booking": b.code})
+            Payment.objects.create(user=user, purpose="booking", booking=b, amount=total, order_id=order["id"])
+            self.checkout = {"order_id": order["id"], "key_id": pay.key_id(), "amount": total * 100, "currency": "INR",
+                             "name": "dayfello", "description": f"Booking {b.code}"}
+        else:
+            announce_booking(b)
+
+    def create(self, request, *args, **kwargs):
+        self.checkout = None
+        r = super().create(request, *args, **kwargs)
+        if self.checkout:
+            r.data["checkout"] = self.checkout
+        return r
 
     def _transition(self, allowed_from, to, by_partner=None):
         b = self.get_object()
@@ -228,6 +300,15 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
         return b
 
     def _refund(self, b):
+        p = b.payments.filter(status="paid").first()
+        if p:  # online payment: refund to the original method via Razorpay
+            pay.refund(p.payment_id, p.amount)
+            p.status = "refunded"
+            p.save(update_fields=["status"])
+            Booking.objects.filter(pk=b.pk).update(payment_status="refunded")
+            notify(b.user, "Refund initiated", f"{inr(p.amount)} for {b.code} will reach your account in 5–7 days.",
+                   "💳", "payment")
+            return
         if b.payment == "Wallet" and b.price:
             User.objects.filter(pk=b.user_id).update(wallet=F("wallet") + b.price)
             WalletTx.objects.create(user=b.user, label=f"Refund — {b.code}", amount=b.price)
@@ -236,7 +317,7 @@ class BookingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retr
     @action(detail=True, methods=["post"])
     @transaction.atomic
     def cancel(self, request, pk=None):
-        b = self._transition(["pending", "accepted"], "cancelled", by_partner=False)
+        b = self._transition(["awaiting_payment", "pending", "accepted"], "cancelled", by_partner=False)
         b.save()
         self._refund(b)
         notify(b.companion.user, "Booking cancelled", f"{b.code} was cancelled by the customer.", "❌", booking_id=b.id)
@@ -343,16 +424,87 @@ class WalletView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        """Top-up. In production, credit only after a verified payment-gateway webhook."""
-        amt = int(request.data.get("amount", 0))
+        """Top-up. With Razorpay configured this returns a checkout order; the wallet is credited only after the
+        payment is verified (checkout signature or webhook). Mock mode (dev only) credits immediately."""
+        try:
+            amt = int(request.data.get("amount", 0))
+        except (TypeError, ValueError):
+            amt = 0
         if not 1 <= amt <= 50000:
             raise ValidationError({"amount": "Amount must be 1-50000"})
+        if pay.enabled():
+            order = pay.create_order(amt, f"topup-{request.user.pk}-{int(timezone.now().timestamp())}", {"purpose": "topup"})
+            Payment.objects.create(user=request.user, purpose="topup", amount=amt, order_id=order["id"])
+            return Response({"checkout": {"order_id": order["id"], "key_id": pay.key_id(), "amount": amt * 100,
+                                          "currency": "INR", "name": "dayfello", "description": "Wallet top-up"}})
+        if not pay.mock_allowed():
+            raise ValidationError({"amount": "Online payments are not available right now."})
         u = User.objects.select_for_update().get(pk=request.user.pk)
         u.wallet += Decimal(amt)
         u.save(update_fields=["wallet"])
         WalletTx.objects.create(user=u, label="Added money", amount=amt)
         notify(u, "Money added", f"{inr(amt)} was added to your wallet.", "💳", "payment")
         return Response({"balance": u.wallet})
+
+
+def announce_booking(b):
+    notify(b.user, "Booking placed", f"Your booking {b.code} with {b.companion} is awaiting confirmation.", "🕒",
+           booking_id=b.id)
+    notify(b.companion.user, "New job request",
+           f"{b.user.first_name} requested {b.companion.service.name} on {b.date}.", "🧾", booking_id=b.id)
+
+
+@transaction.atomic
+def mark_paid(order_id, payment_id):
+    """Apply a successful payment exactly once (called from checkout verification and the webhook)."""
+    p = Payment.objects.select_for_update().filter(order_id=order_id).first()
+    if not p or p.status != "created":
+        return p
+    p.status, p.payment_id = "paid", payment_id
+    p.save(update_fields=["status", "payment_id"])
+    if p.purpose == "topup":
+        u = User.objects.select_for_update().get(pk=p.user_id)
+        u.wallet += Decimal(p.amount)
+        u.save(update_fields=["wallet"])
+        WalletTx.objects.create(user=u, label="Added money", amount=p.amount)
+        notify(u, "Money added", f"{inr(p.amount)} was added to your wallet.", "💳", "payment")
+    elif p.booking and p.booking.status == "awaiting_payment":
+        b = p.booking
+        b.status, b.payment_status = "pending", "paid"
+        b.save(update_fields=["status", "payment_status"])
+        notify(b.user, "Payment received", f"{inr(p.amount)} paid for {b.code}.", "💳", "payment", booking_id=b.id)
+        announce_booking(b)
+    return p
+
+
+class PaymentVerifyView(APIView):
+    """Called by the app after Razorpay checkout succeeds; verifies the signature before applying it."""
+
+    def post(self, request):
+        d = request.data
+        if not pay.verify_checkout(d.get("razorpay_order_id"), d.get("razorpay_payment_id"), d.get("razorpay_signature")):
+            raise ValidationError("Payment verification failed")
+        p = Payment.objects.filter(order_id=d["razorpay_order_id"], user=request.user).first()
+        if not p:
+            raise ValidationError("Unknown order")
+        p = mark_paid(p.order_id, d["razorpay_payment_id"])
+        return Response({"status": p.status, "booking": p.booking_id})
+
+
+class PaymentWebhookView(APIView):
+    """Razorpay webhook (payment.captured / order.paid). Authenticated by HMAC signature, not JWT."""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def post(self, request):
+        if not pay.verify_webhook(request.body, request.headers.get("X-Razorpay-Signature")):
+            return Response(status=400)
+        event = json.loads(request.body)
+        if event.get("event") in ("payment.captured", "order.paid"):
+            ent = event["payload"]["payment"]["entity"]
+            mark_paid(ent["order_id"], ent["id"])
+        return Response({"ok": True})
 
 
 class NotificationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

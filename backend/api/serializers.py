@@ -86,10 +86,10 @@ class BookingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = ["id", "code", "user_id", "user_name", "companion", "companion_detail", "date", "time", "duration",
-                  "address", "instructions", "payment", "coupon", "subtotal", "discount", "price",
+                  "address", "instructions", "payment", "payment_status", "coupon", "subtotal", "discount", "price",
                   "status", "checked_in_at", "checked_out_at", "dest_lat", "dest_lng", "lat", "lng", "location_at",
                   "remaining_km", "eta_min", "rated", "created"]
-        read_only_fields = ["code", "subtotal", "discount", "price", "status", "checked_in_at",
+        read_only_fields = ["code", "subtotal", "discount", "price", "status", "payment_status", "checked_in_at",
                             "checked_out_at", "lat", "lng", "location_at"]
 
     def _km(self, b):

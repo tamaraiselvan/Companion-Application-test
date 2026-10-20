@@ -65,7 +65,7 @@ def booking_code():
 
 class Booking(models.Model):
     STATUS = [(s, s.replace("_", " ").title()) for s in
-              ("pending", "accepted", "in_progress", "completed", "cancelled", "rejected")]
+              ("awaiting_payment", "pending", "accepted", "in_progress", "completed", "cancelled", "rejected")]
     PAYMENTS = [(p, p) for p in ("UPI", "Card", "Net Banking", "Wallet", "Cash")]
     code = models.CharField(max_length=12, unique=True, default=booking_code)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bookings")
@@ -76,11 +76,13 @@ class Booking(models.Model):
     address = models.CharField(max_length=255)
     instructions = models.TextField(blank=True)
     payment = models.CharField(max_length=20, choices=PAYMENTS, default="UPI")
+    PAY_STATUS = [(s, s.title()) for s in ("unpaid", "paid", "cash", "refunded")]
+    payment_status = models.CharField(max_length=10, choices=PAY_STATUS, default="unpaid")
     coupon = models.CharField(max_length=30, blank=True)
     subtotal = models.PositiveIntegerField(default=0)
     discount = models.PositiveIntegerField(default=0)
     price = models.PositiveIntegerField(default=0)
-    status = models.CharField(max_length=12, choices=STATUS, default="pending")
+    status = models.CharField(max_length=20, choices=STATUS, default="pending")
     checked_in_at = models.DateTimeField(null=True, blank=True)
     checked_out_at = models.DateTimeField(null=True, blank=True)
     dest_lat = models.FloatField(null=True, blank=True, help_text="Service address location")
@@ -184,3 +186,27 @@ class CmsItem(models.Model):
 class FeatureFlag(models.Model):
     key = models.CharField(max_length=60, unique=True)
     enabled = models.BooleanField(default=False)
+
+
+class OtpCode(models.Model):
+    """One-time login code. Only an HMAC of the code is stored."""
+    phone = models.CharField(max_length=20, db_index=True)
+    code_hash = models.CharField(max_length=64)
+    expires = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+
+
+class Payment(models.Model):
+    """A Razorpay order for a booking or a wallet top-up."""
+    PURPOSE = [("booking", "Booking"), ("topup", "Wallet top-up")]
+    STATUS = [(s, s.title()) for s in ("created", "paid", "failed", "refunded")]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="payments")
+    purpose = models.CharField(max_length=10, choices=PURPOSE)
+    booking = models.ForeignKey(Booking, null=True, blank=True, on_delete=models.SET_NULL, related_name="payments")
+    amount = models.PositiveIntegerField(help_text="INR")
+    order_id = models.CharField(max_length=64, unique=True)
+    payment_id = models.CharField(max_length=64, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS, default="created")
+    created = models.DateTimeField(auto_now_add=True)

@@ -19,7 +19,10 @@ r.register("admin/sos", v.AdminSOSViewSet, basename="admin-sos")
 
 urlpatterns = [
     path("auth/login/", v.LoginView.as_view()),
+    path("auth/otp/request/", v.OtpRequestView.as_view()),
     path("auth/otp/verify/", v.OtpVerifyView.as_view()),
+    path("payments/verify/", v.PaymentVerifyView.as_view()),
+    path("payments/webhook/", v.PaymentWebhookView.as_view()),
     path("auth/register/", v.RegisterView.as_view()),
     path("auth/refresh/", TokenRefreshView.as_view()),
     path("auth/logout/", TokenBlacklistView.as_view()),

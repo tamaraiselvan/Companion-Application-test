@@ -4,6 +4,8 @@ from rest_framework.test import APITestCase
 
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from .models import Booking, Device, Notification, User
 
 PW = "Dayfello@123"
@@ -136,3 +138,83 @@ class MapsAndNotificationTests(APITestCase):
         self.assertEqual(self.client.post("/api/v1/devices/", {"token": "x", "platform": "pc"}).status_code, 400)
         self.client.delete("/api/v1/devices/", {"token": "abc"})
         self.assertFalse(Device.objects.exists())
+
+
+class OtpAndPaymentTests(APITestCase):
+    @classmethod
+    def setUpTestData(cls):
+        call_command("seed", verbosity=0)
+
+    setUp = FlowTests.setUp
+    login = FlowTests.login
+
+    @override_settings(DEMO_OTP="")
+    @patch("api.views.send_otp")
+    def test_sms_otp_login(self, sms):
+        phone = "+919876543210"
+        self.assertEqual(self.client.post("/api/v1/auth/otp/request/", {"phone": phone}).status_code, 200)
+        code = sms.call_args.args[1]
+        self.assertEqual(self.client.post("/api/v1/auth/otp/request/", {"phone": phone}).status_code, 400)  # 30s cooldown
+        self.assertEqual(self.client.post("/api/v1/auth/otp/verify/", {"phone": phone, "otp": "000000" if code != "000000" else "111111"}).status_code, 400)
+        r = self.client.post("/api/v1/auth/otp/verify/", {"phone": phone, "otp": code})
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertIn("access", r.data)
+        self.assertEqual(self.client.post("/api/v1/auth/otp/verify/", {"phone": phone, "otp": code}).status_code, 400)  # single use
+        # unknown numbers get the same response but no SMS
+        sms.reset_mock()
+        self.assertEqual(self.client.post("/api/v1/auth/otp/request/", {"phone": "+911234567890"}).status_code, 200)
+        sms.assert_not_called()
+
+    @override_settings(DEMO_OTP="")
+    @patch("api.views.send_otp")
+    def test_otp_locks_after_too_many_attempts(self, sms):
+        phone = "+919876543210"
+        self.client.post("/api/v1/auth/otp/request/", {"phone": phone})
+        code = sms.call_args.args[1]
+        wrong = "000000" if code != "000000" else "111111"
+        for _ in range(5):
+            self.client.post("/api/v1/auth/otp/verify/", {"phone": phone, "otp": wrong})
+            cache.clear()
+        self.assertEqual(self.client.post("/api/v1/auth/otp/verify/", {"phone": phone, "otp": code}).status_code, 400)
+
+    @patch.dict("os.environ", {"RAZORPAY_KEY_ID": "rzp_test_x", "RAZORPAY_KEY_SECRET": "sec", "RAZORPAY_WEBHOOK_SECRET": "wh"})
+    @patch("api.payments.create_order", return_value={"id": "order_1"})
+    def test_razorpay_booking_and_topup(self, _order):
+        import hashlib, hmac, json
+        meena = User.objects.get(username="+919000010002").companion
+        self.login("+919876543210")
+        r = self.client.post("/api/v1/bookings/", {"companion": meena.id, "date": "2030-01-01", "time": "10:00",
+                                                  "duration": 1, "address": "x", "payment": "UPI"})
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["status"], "awaiting_payment")
+        self.assertEqual(r.data["checkout"]["order_id"], "order_1")
+        bid = r.data["id"]
+        # companion cannot see it yet
+        self.login("+919000010002")
+        self.assertEqual(self.client.get(f"/api/v1/bookings/{bid}/").status_code, 404)
+        self.login("+919876543210")
+        bad = {"razorpay_order_id": "order_1", "razorpay_payment_id": "pay_1", "razorpay_signature": "nope"}
+        self.assertEqual(self.client.post("/api/v1/payments/verify/", bad).status_code, 400)
+        sig = hmac.new(b"sec", b"order_1|pay_1", hashlib.sha256).hexdigest()
+        r = self.client.post("/api/v1/payments/verify/", {**bad, "razorpay_signature": sig})
+        self.assertEqual(r.data["status"], "paid")
+        b = Booking.objects.get(pk=bid)
+        self.assertEqual((b.status, b.payment_status), ("pending", "paid"))
+        # webhook for a top-up, delivered twice: credited once
+        _order.return_value = {"id": "order_2"}
+        self.assertEqual(self.client.post("/api/v1/wallet/", {"amount": 500}).data["checkout"]["order_id"], "order_2")
+        body = json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": {"id": "pay_2", "order_id": "order_2"}}}}).encode()
+        wsig = hmac.new(b"wh", body, hashlib.sha256).hexdigest()
+        self.client.credentials()
+        self.assertEqual(self.client.post("/api/v1/payments/webhook/", body, content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="bad").status_code, 400)
+        for _ in range(2):
+            self.client.post("/api/v1/payments/webhook/", body, content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE=wsig)
+        self.assertEqual(float(User.objects.get(username="+919876543210").wallet), 1250 + 500)
+
+    @override_settings(PAYMENTS_MOCK=False)
+    def test_online_payment_refused_without_gateway(self):
+        meena = User.objects.get(username="+919000010002").companion
+        self.login("+919876543210")
+        r = self.client.post("/api/v1/bookings/", {"companion": meena.id, "date": "2030-01-01", "time": "10:00",
+                                                  "duration": 1, "address": "x", "payment": "Card"})
+        self.assertEqual(r.status_code, 400)
